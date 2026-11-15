@@ -1160,8 +1160,20 @@ func (a *Manager) createTokenTx(tx *sql.Tx, userID, token, label string, lastAcc
 		}
 		if tokenCount > maxTokenCount {
 			// This pruning logic is done in two queries for efficiency. The SELECT above is a lookup
-			// on two indices, whereas the query below is a full table scan.
-			if _, err := tx.Exec(a.queries.deleteExcessTokens, userID, userID, maxTokenCount); err != nil {
+			// on two indices, whereas the query below is a full table scan. The new token is never
+			// pruned: the caller is about to hand it out. Of the rest, never-expiring tokens (enrolled
+			// devices, CLI tokens) are kept over expiring ones (web app sessions), then the newest.
+			if _, err := tx.Exec(a.queries.deleteExcessTokens, userID, token, userID, token, maxTokenCount-1); err != nil {
+				return nil, err
+			}
+			// Fail rather than hand out a token that no longer exists
+			rows, err := tx.Query(a.queries.selectToken, userID, token)
+			if err != nil {
+				return nil, err
+			}
+			_, err = a.readToken(rows)
+			rows.Close()
+			if err != nil {
 				return nil, err
 			}
 		}

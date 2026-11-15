@@ -186,12 +186,13 @@ const (
 	postgresDeleteExcessTokensQuery         = `
 		DELETE FROM user_token
 		WHERE user_id = $1
+		  AND token != $2
 		  AND (user_id, token) NOT IN (
 			SELECT user_id, token
 			FROM user_token
-			WHERE user_id = $2
-			ORDER BY expires DESC
-			LIMIT $3
+			WHERE user_id = $3 AND token != $4
+			ORDER BY (expires = 0) DESC, expires DESC, last_access DESC
+			LIMIT $5
 		)
 	`
 

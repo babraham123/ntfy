@@ -21,10 +21,13 @@ test("an enrollment link signs a signed-out browser in and subscribes it", async
 
   await page.goto(redeemLink(code, username, topics));
 
+  await expect(page.getByText(`Sign in as ${username}?`)).toBeVisible();
+  expect(new URL(page.url()).hash).toBe(""); // The code does not linger in the address bar or history
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+
   for (const topic of topics) {
     await expect(page.getByRole("button", { name: topic, exact: true })).toBeVisible();
   }
-  expect(new URL(page.url()).hash).toBe(""); // The code does not linger in the address bar or history
 
   // The browser holds its own token, labelled for the web app, and the code is spent
   const state = await account(request, await apiToken(request, username));
@@ -32,6 +35,25 @@ test("an enrollment link signs a signed-out browser in and subscribes it", async
   expect(state.tokens.map((t) => t.label)).toContain("Web app");
   expect(state.subscriptions.map((s) => s.topic).sort()).toEqual([...topics].sort());
   expect((await request.post("/v1/account/token/redeem", { data: { code } })).status()).toBe(400);
+});
+
+test("declining an enrollment link keeps the browser signed out and deletes the redeemed token", async ({
+  page,
+  request,
+  admin,
+  users,
+}) => {
+  const username = await users.create();
+  const code = await enrollCode(admin, username);
+
+  await page.goto(redeemLink(code, username, [unique("alerts")]));
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+
+  await expect(page).not.toHaveURL(/token\/redeem/);
+  expect(await page.evaluate(() => localStorage.getItem("user"))).toBeNull();
+  const state = await account(request, await apiToken(request, username));
+  expect(state.tokens.map((t) => t.label)).not.toContain("Web app");
+  expect(state.subscriptions ?? []).toHaveLength(0);
 });
 
 test("an enrollment link only subscribes when already signed in as its user", async ({ page, request, admin, users }) => {
@@ -42,6 +64,8 @@ test("an enrollment link only subscribes when already signed in as its user", as
 
   await page.goto(redeemLink(code, username, [topic]));
 
+  await expect(page.getByText(`Topics: ${topic}`)).toBeVisible();
+  await page.getByRole("button", { name: "Subscribe", exact: true }).click();
   await expect(page.getByRole("button", { name: topic, exact: true })).toBeVisible();
   // The code was left unused, so it still works (and the browser kept its own session)
   expect((await request.post("/v1/account/token/redeem", { data: { code } })).status()).toBe(200);

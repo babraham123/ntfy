@@ -168,12 +168,12 @@ class AccountApi {
     await session.setLastExtendedAtAsync();
   }
 
-  async deleteToken(token) {
+  async deleteToken(token, authToken = session.token()) {
     const url = accountTokenUrl(config.base_url);
     console.log(`[AccountApi] Deleting user access token ${url}`);
     await fetchOrThrow(url, {
       method: "DELETE",
-      headers: withBearerAuth({ "X-Token": token }, session.token()),
+      headers: withBearerAuth({ "X-Token": token }, authToken),
     });
   }
 

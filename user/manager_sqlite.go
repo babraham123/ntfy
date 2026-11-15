@@ -183,11 +183,12 @@ const (
 	sqliteDeleteExcessTokensQuery         = `
 		DELETE FROM user_token
 		WHERE user_id = ?
+		  AND token != ?
 		  AND (user_id, token) NOT IN (
 			SELECT user_id, token
 			FROM user_token
-			WHERE user_id = ?
-			ORDER BY expires DESC
+			WHERE user_id = ? AND token != ?
+			ORDER BY (expires = 0) DESC, expires DESC, last_access DESC
 			LIMIT ?
 		)
 	`

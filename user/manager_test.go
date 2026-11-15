@@ -3631,3 +3631,49 @@ func TestManager_RedeemTokenEnrollCode_ConcurrentRedeemSucceedsOnce(t *testing.T
 		require.Len(t, tokens, 1)
 	})
 }
+
+func TestManager_RedeemTokenEnrollCode_MaxTokensKeepsRedeemedToken(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, newManager newManagerFunc) {
+		a := newTestManager(t, newManager, PermissionDenyAll)
+		require.Nil(t, a.AddUser("ben", "ben", RoleUser, false))
+		u, err := a.User("ben")
+		require.Nil(t, err)
+
+		// Fill up to the limit: one web app session plus never-expiring device tokens
+		session, err := a.CreateToken(u.ID, "web", time.Now().Add(72*time.Hour), netip.IPv4Unspecified(), false)
+		require.Nil(t, err)
+		devices := make([]string, 0)
+		for i := 0; i < tokenMaxCount-1; i++ {
+			token, err := a.CreateToken(u.ID, "device", time.Unix(0, 0), netip.IPv4Unspecified(), false)
+			require.Nil(t, err)
+			devices = append(devices, token.Value)
+		}
+
+		// Redeeming past the limit prunes the expiring session, not a device and not the new token
+		code, err := a.AddMagicLink(MagicLinkKindTokenEnroll, u.ID, "", time.Minute)
+		require.Nil(t, err)
+		_, token, err := a.RedeemTokenEnrollCode(code, "phone", netip.IPv4Unspecified())
+		require.Nil(t, err)
+		userWithToken, err := a.AuthenticateToken(token.Value)
+		require.Nil(t, err)
+		require.Equal(t, "ben", userWithToken.Name)
+		_, err = a.AuthenticateToken(session.Value)
+		require.Equal(t, ErrUnauthenticated, err)
+		for _, device := range devices {
+			_, err := a.AuthenticateToken(device)
+			require.Nil(t, err)
+		}
+
+		// With only never-expiring tokens left, the redeemed token still survives the pruning
+		code, err = a.AddMagicLink(MagicLinkKindTokenEnroll, u.ID, "", time.Minute)
+		require.Nil(t, err)
+		_, token, err = a.RedeemTokenEnrollCode(code, "tablet", netip.IPv4Unspecified())
+		require.Nil(t, err)
+		userWithToken, err = a.AuthenticateToken(token.Value)
+		require.Nil(t, err)
+		require.Equal(t, "ben", userWithToken.Name)
+		tokens, err := a.Tokens(u.ID)
+		require.Nil(t, err)
+		require.Len(t, tokens, tokenMaxCount)
+	})
+}
